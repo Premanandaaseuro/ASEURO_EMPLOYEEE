@@ -1,13 +1,13 @@
 # ============================================================
-#  GitHub Actions CI/CD Pipeline
+#  GitHub Actions CI/CD Pipeline - S3 + EC2 Capstone Project
 #  Employee Management System
 #
 #  Triggers: push to main branch
 #
-#  Jobs:
-#    1. build-and-test    (CI)
-#    2. docker-build-push (Build & push to ECR)
-#    3. deploy-to-ec2     (CD)
+#  Architecture:
+#    - React App   -> AWS S3 Static Website Hosting
+#    - Spring Boot -> AWS EC2 (Docker Container on Port 8080)
+#    - PostgreSQL  -> AWS RDS
 # ============================================================
 
 name: CI/CD Pipeline
@@ -21,8 +21,8 @@ on:
 env:
   AWS_REGION:         ${{ secrets.AWS_REGION }}
   ECR_REGISTRY:       ${{ secrets.ECR_REGISTRY }}
+  S3_BUCKET:          emp-frontend-premananda-2026
   BACKEND_REPO:       emp-backend
-  FRONTEND_REPO:      emp-frontend
 
 # ─────────────────────────────────────────────────────────────
 # JOB 1: Build & Test
@@ -69,13 +69,14 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      # ── 6. Install & build React ──────────────────────────
+      # ── 6. Install & build React (pointing to EC2 host API) ──
       - name: Install Frontend Dependencies
         run: npm ci
         working-directory: frontend
 
-      - name: Build React App
-        run: npm run build
+      - name: Build React App for S3
+        run: |
+          VITE_API_URL="http://${{ secrets.EC2_HOST }}:8080/api" npm run build
         working-directory: frontend
 
       - name: Upload Frontend Build
@@ -86,11 +87,11 @@ jobs:
           retention-days: 1
 
   # ─────────────────────────────────────────────────────────────
-  # JOB 2: Docker Build & Push to ECR
-  # Only on push to main (not on PRs)
+  # JOB 2: Publish Artifacts (Docker to ECR, Frontend to S3)
+  # Only on push to main
   # ─────────────────────────────────────────────────────────────
-  docker-build-push:
-    name: 🐳 Docker Build & Push to ECR
+  publish-artifacts:
+    name: 📦 Publish Artifacts (ECR & S3)
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -133,7 +134,7 @@ jobs:
         id: meta
         run: echo "tag=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
 
-      # ── Build & Push BACKEND image ────────────────────────
+      # ── Build & Push BACKEND image to ECR ─────────────────
       - name: Build & Push Backend Image
         env:
           IMAGE_TAG: ${{ steps.meta.outputs.tag }}
@@ -146,26 +147,20 @@ jobs:
           docker push $ECR_REGISTRY/$BACKEND_REPO:latest
           echo "✅ Backend image pushed: $ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG"
 
-      # ── Build & Push FRONTEND image ───────────────────────
-      - name: Build & Push Frontend Image
-        env:
-          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+      # ── Deploy React App to AWS S3 Static Website ────────
+      - name: Deploy Frontend to S3
         run: |
-          docker build \
-            -t $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG \
-            -t $ECR_REGISTRY/$FRONTEND_REPO:latest \
-            ./frontend
-          docker push $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$FRONTEND_REPO:latest
-          echo "✅ Frontend image pushed: $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG"
+          echo "🚀 Uploading static assets to S3 bucket: $S3_BUCKET"
+          aws s3 sync frontend/dist/ s3://$S3_BUCKET --delete
+          echo "✅ S3 static site sync complete!"
 
   # ─────────────────────────────────────────────────────────────
-  # JOB 3: Deploy to EC2
+  # JOB 3: Deploy Backend to EC2
   # ─────────────────────────────────────────────────────────────
   deploy-to-ec2:
-    name: 🚀 Deploy to EC2
+    name: 🚀 Deploy Backend to EC2
     runs-on: ubuntu-latest
-    needs: docker-build-push
+    needs: publish-artifacts
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
@@ -175,36 +170,31 @@ jobs:
           host:     ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key:      ${{ secrets.EC2_SSH_KEY }}
-          envs:     ECR_REGISTRY,AWS_REGION,BACKEND_REPO,FRONTEND_REPO
+          envs:     ECR_REGISTRY,AWS_REGION,BACKEND_REPO
           script: |
             set -e  # Exit on any error
 
-            IMAGE_TAG="${{ needs.docker-build-push.outputs.image-tag }}"
-            echo "🚀 Deploying image tag: $IMAGE_TAG"
+            IMAGE_TAG="${{ needs.publish-artifacts.outputs.image-tag }}"
+            echo "🚀 Deploying backend image tag: $IMAGE_TAG"
 
             # ── Login to ECR from EC2 ───────────────────────
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-            # ── Pull latest images ──────────────────────────
+            # ── Pull latest image ───────────────────────────
             echo "📥 Pulling backend image..."
             docker pull ${{ secrets.ECR_REGISTRY }}/emp-backend:latest
 
-            echo "📥 Pulling frontend image..."
-            docker pull ${{ secrets.ECR_REGISTRY }}/emp-frontend:latest
-
-            # ── Stop and remove old containers ──────────────
-            echo "🛑 Stopping old containers..."
+            # ── Stop and remove old backend container ──────
+            echo "🛑 Stopping old backend..."
             docker stop emp-backend  2>/dev/null || true
             docker rm   emp-backend  2>/dev/null || true
-            docker stop emp-frontend 2>/dev/null || true
-            docker rm   emp-frontend 2>/dev/null || true
 
             # ── Create network if needed ────────────────────
             docker network create emp-network 2>/dev/null || true
 
             # ── Run Backend ─────────────────────────────────
-            echo "▶️  Starting backend..."
+            echo "▶️  Starting backend container..."
             docker run -d \
               --name emp-backend \
               --network emp-network \
@@ -233,33 +223,19 @@ jobs:
               sleep 10
             done
 
-            # ── Run Frontend ────────────────────────────────
-            echo "▶️  Starting frontend..."
-            docker run -d \
-              --name emp-frontend \
-              --network emp-network \
-              --restart unless-stopped \
-              -p 80:80 \
-              --log-driver=awslogs \
-              --log-opt awslogs-region=${{ secrets.AWS_REGION }} \
-              --log-opt awslogs-group=/emp/frontend \
-              --log-opt awslogs-stream=frontend-$IMAGE_TAG \
-              ${{ secrets.ECR_REGISTRY }}/emp-frontend:latest
-
             # ── Clean up dangling images ────────────────────
             docker image prune -f
 
             echo ""
             echo "✅ Deployment complete!"
-            echo "   Backend  → http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8080"
-            echo "   Frontend → http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
+            echo "   Backend REST API → http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8080"
 
       # ── Post-deploy health check from GitHub Actions ──────
-      - name: Verify Deployment Health
+      - name: Verify Backend Health
         run: |
           sleep 15
-          echo "Checking application health from GitHub Actions runner..."
-          curl -sf http://${{ secrets.EC2_HOST }}/api/actuator/health \
+          echo "Checking backend health from GitHub Actions runner..."
+          curl -sf http://${{ secrets.EC2_HOST }}:8080/actuator/health \
             -H "Accept: application/json" && \
-            echo "✅ Application is live!" || \
-            echo "⚠️  Health check failed — check EC2 logs"
+            echo "✅ Backend API is live on EC2 port 8080!" || \
+            (echo "⚠️  Health check failed — check EC2 logs" && exit 1)
