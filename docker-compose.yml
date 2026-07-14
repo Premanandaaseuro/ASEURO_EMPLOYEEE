@@ -72,6 +72,23 @@ services:
     networks:
       - emp-network
 
+  # ── pgAdmin Database Management Tool ────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:8.7
+    container_name: emp-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@emp.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emp-network
+
+
 volumes:
   postgres_data:
     name: emp-postgres-data
