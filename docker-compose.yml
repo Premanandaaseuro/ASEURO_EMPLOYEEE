@@ -1,0 +1,82 @@
+version: '3.9'
+
+# ============================================================
+# Local Development Stack
+# Usage: docker-compose up --build
+# ============================================================
+
+services:
+
+  # ── PostgreSQL Database ────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: emp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-employeedb}
+      POSTGRES_USER:     ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${POSTGRES_DB:-employeedb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - emp-network
+
+  # ── Spring Boot Backend ────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: emp-backend
+    restart: unless-stopped
+    environment:
+      DB_URL:               jdbc:postgresql://postgres:5432/${POSTGRES_DB:-employeedb}
+      DB_USERNAME:          ${DB_USERNAME:-postgres}
+      DB_PASSWORD:          ${DB_PASSWORD:-postgres}
+      JWT_SECRET:           ${JWT_SECRET:-MyS3cr3tK3yForJWTThatIsAtLeast256BitsLong1234567890}
+      JWT_EXPIRATION:       ${JWT_EXPIRATION:-86400000}
+      SPRING_PROFILES_ACTIVE: docker
+      DDL_AUTO:             update
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emp-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── React Frontend (Nginx) ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: emp-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - emp-network
+
+volumes:
+  postgres_data:
+    name: emp-postgres-data
+
+networks:
+  emp-network:
+    name: emp-network
+    driver: bridge
