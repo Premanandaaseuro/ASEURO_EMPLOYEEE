@@ -208,6 +208,7 @@ jobs:
             docker run -d \
               --name emp-backend \
               --network emp-network \
+              --network-alias backend \
               --restart unless-stopped \
               -p 8080:8080 \
               -e DB_URL="${{ secrets.DB_URL }}" \
