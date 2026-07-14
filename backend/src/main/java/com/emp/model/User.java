@@ -30,6 +30,10 @@ public class User {
     @Builder.Default
     private Role role = Role.USER;
 
+    @Lob
+    @Column(name = "face_photo", columnDefinition = "TEXT")
+    private String facePhoto;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 

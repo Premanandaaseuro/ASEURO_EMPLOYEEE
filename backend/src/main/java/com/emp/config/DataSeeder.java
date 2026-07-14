@@ -43,6 +43,17 @@ public class DataSeeder {
                 log.info("Seeded admin user (username: admin, password: admin123)");
             }
 
+            // Seed regular user
+            if (!userRepository.existsByUsername("user")) {
+                userRepository.save(User.builder()
+                        .username("user")
+                        .password(passwordEncoder.encode("user123"))
+                        .email("user@emp.com")
+                        .role(User.Role.USER)
+                        .build());
+                log.info("Seeded regular user (username: user, password: user123)");
+            }
+
             // Seed sample employees
             if (employeeRepository.count() == 0) {
                 employeeRepository.save(Employee.builder()

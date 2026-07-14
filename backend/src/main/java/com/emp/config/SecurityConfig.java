@@ -54,9 +54,13 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .headers(headers -> headers.frameOptions(frame -> frame.sameOrigin())) // allow H2 console iframes
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/auth/register-face").authenticated()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()   // H2 console in dev
+                .requestMatchers("/api/licenses/verify").permitAll()
+                .requestMatchers("/api/licenses/keys/public").permitAll()
+                .requestMatchers("/api/licenses/**").hasRole("ADMIN")
                 .requestMatchers("/api/employees/**").authenticated()
                 .anyRequest().authenticated()
             )

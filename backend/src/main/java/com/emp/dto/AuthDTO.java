@@ -43,4 +43,23 @@ public class AuthDTO {
         private String role;
         private String message;
     }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FaceLoginRequest {
+        @NotBlank(message = "Username is required")
+        private String username;
+
+        @NotBlank(message = "Captured face photo is required")
+        private String capturedPhoto;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RegisterFaceRequest {
+        @NotBlank(message = "Face photo is required")
+        private String capturedPhoto;
+    }
 }

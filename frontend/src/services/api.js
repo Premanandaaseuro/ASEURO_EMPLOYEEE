@@ -28,8 +28,10 @@ api.interceptors.response.use(
 
 // ── Auth ──────────────────────────────────────────────
 export const authApi = {
-  login:    (data) => api.post('/auth/login', data),
-  register: (data) => api.post('/auth/register', data),
+  login:        (data) => api.post('/auth/login', data),
+  register:     (data) => api.post('/auth/register', data),
+  registerFace: (data) => api.post('/auth/register-face', data),
+  faceLogin:    (data) => api.post('/auth/face-login', data),
 };
 
 // ── Employees ─────────────────────────────────────────
@@ -42,6 +44,16 @@ export const employeeApi = {
   search:    (keyword, params) => api.get('/employees/search', { params: { keyword, ...params } }),
   getStats:  ()       => api.get('/employees/stats'),
   getDepts:  ()       => api.get('/employees/departments'),
+};
+
+// ── Licenses ──────────────────────────────────────────
+export const licenseApi = {
+  getAll:         () => api.get('/licenses'),
+  generate:       (data) => api.post('/licenses/generate', data),
+  revoke:         (id) => api.post(`/licenses/${id}/revoke`),
+  getPublicKey:   () => api.get('/licenses/keys/public'),
+  regenerateKeys: () => api.post('/licenses/keys/regenerate'),
+  verify:         (licenseKey) => api.post('/licenses/verify', { licenseKey }),
 };
 
 export default api;
